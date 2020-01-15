@@ -175,6 +175,8 @@ cell_asic bms_ic[TOTAL_IC];
 void setup()
 {
   Serial.begin(115200);
+  //quikeval_I2C_init();              //! Configure the EEPROM I2C port for 100kHz
+  //quikeval_I2C_connect();           //! Connects to main I2C port
   //quikeval_SPI_connect(); //commented out for going generic
   spi_enable(SPI_CLOCK_DIV16); // This will set the Linduino to have a 1MHz Clock
   LTC681x_init_cfg(TOTAL_IC, bms_ic);
