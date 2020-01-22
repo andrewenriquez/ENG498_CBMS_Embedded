@@ -72,6 +72,7 @@ Copyright 2017 Linear Technology Corp. (LTC)
 #include "LTC681x.h"
 #include "LTC6811.h"
 #include <SPI.h>
+#include <SD.h>
 
 /****************************************************************
  * DC1812A-B LTC2944 Headers
