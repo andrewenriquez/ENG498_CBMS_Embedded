@@ -137,7 +137,7 @@ const uint8_t SEL_ALL_REG = REG_ALL; //!< Register Selection
 const uint8_t SEL_REG_A = REG_1; //!< Register Selection 
 const uint8_t SEL_REG_B = REG_2; //!< Register Selection 
 
-const uint16_t MEASUREMENT_LOOP_TIME = 500; //!< Loop Time in milliseconds(ms)
+const uint16_t MEASUREMENT_LOOP_TIME = 900; //!< Loop Time in milliseconds(ms)
 
 //Under Voltage and Over Voltage Thresholds
 const uint16_t OV_THRESHOLD = 44000; //!< Over voltage threshold ADC Code. LSB = 0.0001 ---(4.4V)
@@ -815,12 +815,15 @@ void print_rxconfig(void)
   \brief Prints cell voltage to the serial port
    @return void
  *************************************************************/
-void print_cells(uint8_t datalog_en)
-{
+void print_cells(uint8_t datalog_en) {
+unsigned long int time = millis();
+
   for (int current_ic = 0 ; current_ic < TOTAL_IC; current_ic++)
   {
     if (datalog_en == 0)
     {
+      Serial.print("Seconds: ");
+      Serial.print(time / 1000);
       Serial.print(" IC ");
       Serial.print(current_ic+1,DEC);
       Serial.print(": ");      for (int i=0; i< BMS_IC[0].ic_reg.cell_channels; i++)
