@@ -82,12 +82,16 @@ In this sketch book:
 #include "LTC681x.h"
 #include "LTC6811.h"
 
+#include "RTClib.h"
+
 /************************* Defines *****************************/
 #define ENABLED 1
 #define DISABLED 0
 #define DATALOG_ENABLED 1
 #define DATALOG_DISABLED 0
 #define SPI_CLOCK_DIV16 0x01
+
+
 
 /**************** Local Function Declaration *******************/
 void measurement_loop(uint8_t datalog_en);
@@ -126,6 +130,8 @@ void run_command(uint32_t cmd);
 ********************************************************************/
 const uint8_t TOTAL_IC = 1;//!< Number of ICs in the daisy chain
 
+
+
 //ADC Command Configurations. See LTC681x.h for options.
 const uint8_t ADC_OPT = ADC_OPT_DISABLED; //!< ADC Mode option bit
 const uint8_t ADC_CONVERSION_MODE = MD_7KHZ_3KHZ; //!< ADC Mode
@@ -150,6 +156,8 @@ const uint8_t MEASURE_CELL = ENABLED; //!< This is to ENABLED or DISABLED measur
 const uint8_t MEASURE_AUX = DISABLED; //!< This is to ENABLED or DISABLED reading the auxiliary registers in a continuous loop
 const uint8_t MEASURE_STAT = DISABLED; //!< This is to ENABLED or DISABLED reading the status registers in a continuous loop
 const uint8_t PRINT_PEC = DISABLED; //!< This is to ENABLED or DISABLED printing the PEC Error Count in a continuous loop
+
+RTC_DS3231 rtc; //Real time clock object
 /************************************
   END SETUP
 *************************************/
@@ -181,6 +189,7 @@ bool DCTOBITS[4] = {true, false, true, false}; //!< Discharge time value // Dcto
  ***********************************************************************/
 void setup()
 {
+  rtc.begin();
   Serial.begin(115200);
   Serial1.begin(9600); //Default Comm for BLE.
   //quikeval_SPI_connect();
@@ -816,14 +825,15 @@ void print_rxconfig(void)
    @return void
  *************************************************************/
 void print_cells(uint8_t datalog_en) {
-unsigned long int time = millis();
+//unsigned long int time = millis();
+DateTime now = rtc.now(); //print timestamp
 
   for (int current_ic = 0 ; current_ic < TOTAL_IC; current_ic++)
   {
     if (datalog_en == 0)
     {
-      Serial.print("Seconds: ");
-      Serial.print(time / 1000);
+      Serial.println(String("DateTime:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+
       Serial.print(" IC ");
       Serial.print(current_ic+1,DEC);
       Serial.print(": ");      for (int i=0; i< BMS_IC[0].ic_reg.cell_channels; i++)
@@ -1372,3 +1382,4 @@ char get_char(void)
   while (Serial.available() <= 0);
   return(Serial.read());
 }
+
