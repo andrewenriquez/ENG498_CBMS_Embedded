@@ -1,4 +1,4 @@
-#include <LTC6811.h>
+//#include <LTC6811.h>
 
 /*! Analog Devices DC2259A Demonstration Board. 
 * LTC6811: Multicell Battery Monitors
@@ -85,6 +85,8 @@ In this sketch book:
 #include <Wire.h>
 
 #include "RTClib.h"
+#include <SD.h>
+#include <ArduinoJson.h>
 
 /************************* Defines *****************************/
 #define ENABLED 1
@@ -93,15 +95,25 @@ In this sketch book:
 #define DATALOG_DISABLED 0
 #define SPI_CLOCK_DIV16 0x01
 
+File myFile;
 
+String data1;
+static char outstr[15];
+StaticJsonDocument<512> doc;
 
 /**************** Local Function Declaration *******************/
+
+void ReadSD();
+void writeSD(uint8_t data);
+
+
 void measurement_loop(uint8_t datalog_en);
 void measurement_loop2(uint8_t datalog_en, int8_t mAh_or_Coulombs , int8_t celcius_or_kelvin ,uint16_t prescalar_mode,uint16_t prescalarValue, uint16_t alcc_mode);
 void print_menu(void);
 void print_wrconfig(void);
 void print_rxconfig(void);
 void print_cells(uint8_t datalog_en);
+void print_cells_SD(uint8_t datalog_en);
 void BLE_cells(uint8_t datalog_en); //added by AE
 void print_aux(uint8_t datalog_en);
 void print_stat(void);
@@ -183,7 +195,7 @@ const uint8_t SEL_ALL_REG = REG_ALL; //!< Register Selection
 const uint8_t SEL_REG_A = REG_1; //!< Register Selection 
 const uint8_t SEL_REG_B = REG_2; //!< Register Selection 
 
-const uint16_t MEASUREMENT_LOOP_TIME = 900; //!< Loop Time in milliseconds(ms)
+const uint16_t MEASUREMENT_LOOP_TIME = 3000; //!< Loop Time in milliseconds(ms)
 
 //Under Voltage and Over Voltage Thresholds
 const uint16_t OV_THRESHOLD = 44000; //!< Over voltage threshold ADC Code. LSB = 0.0001 ---(4.4V)
@@ -230,8 +242,20 @@ bool DCTOBITS[4] = {true, false, true, false}; //!< Discharge time value // Dcto
  \brief  Initializes hardware and variables
  @return void
  ***********************************************************************/
+
+
+int pinCS = 7; // Pin 10 on Arduino Uno
+void ReadSD();
+void writeSD(String data);
+
+/***********************************************************************************************************/
+/*                                               SETUP BEGINS                                              */
+/**                                                                                                        */
 void setup()
 {
+  pinMode(pinCS, OUTPUT);
+  
+  //digitalWrite(pinCS, HIGH);
 
   char demo_name[] = "DC1812";      //! Demo Board Name stored in QuikEval EEPROM
 
@@ -242,6 +266,15 @@ void setup()
   //print_title();
   //demo_board_connected = discover_demo_board(demo_name);
   demo_board_connected = true;
+  //digitalWrite(pinCS, HIGH);
+      // SD Card Initialization
+  // Serial.print("Initializing SD card...");
+
+  // if (!SD.begin(pinCS)) {
+  //   Serial.println("initialization failed!");
+  //   //while (1);
+  // }
+  Serial.println("initialization done.");
   if (demo_board_connected)
   {
     
@@ -258,6 +291,7 @@ void setup()
   rtc.begin();
   Serial.begin(115200);
   Serial1.begin(9600); //Default Comm for BLE.
+  Serial2.begin(9600); //Default Comm for ESP8266
   //quikeval_SPI_connect();
   spi_enable(SPI_CLOCK_DIV16); // This will set the Linduino to have a 1MHz Clock
   LTC6811_init_cfg(TOTAL_IC, BMS_IC);
@@ -268,6 +302,7 @@ void setup()
   LTC6811_reset_crc_count(TOTAL_IC,BMS_IC);
   LTC6811_init_reg_limits(TOTAL_IC,BMS_IC);
   print_menu();
+
 }
 
 /*!*********************************************************************
@@ -403,6 +438,7 @@ void run_command(uint32_t cmd)
       break;
       
     case 11: // Loop Measurements of configuration register or cell voltages or auxiliary register or status register without data-log output
+      digitalWrite(pinCS, HIGH);
       wakeup_sleep(TOTAL_IC);
       LTC6811_wrcfg(TOTAL_IC,BMS_IC);
       measurement_loop(DATALOG_DISABLED);
@@ -757,6 +793,9 @@ void run_command(uint32_t cmd)
         print_menu();
 
         break;
+
+
+
     case 'm': //prints menu
       print_menu();
       break;
@@ -766,12 +805,15 @@ void run_command(uint32_t cmd)
       serial_print_text(str_error);
       break;
 
+
+
   }
         if (ack != 0)   {                                                    //! If ack is not recieved print an error.
         Serial.println(ack_error);
       Serial.print(F("*************************"));
       //print_prompt();
     }
+
 }
 
 
@@ -779,6 +821,7 @@ void measurement_loop2(uint8_t datalog_en, int8_t mAh_or_Coulombs , int8_t celci
 {
   int8_t error = 0;
   char input = 0;
+  DateTime now = rtc.now(); //print timestamp
   
   Serial.println(F("Transmit 'm' to quit"));
   
@@ -866,6 +909,7 @@ void measurement_loop2(uint8_t datalog_en, int8_t mAh_or_Coulombs , int8_t celci
     float charge, current, voltage, temperature;
     if (mAh_or_Coulombs)
     {
+      
       charge = LTC2944_code_to_coulombs(charge_code, resistor, prescalarValue);                             //! Convert charge code to Coulombs if Coulomb units are desired.
       Serial.print("Coulombs: ");
       Serial.print(charge, 4);
@@ -879,11 +923,21 @@ void measurement_loop2(uint8_t datalog_en, int8_t mAh_or_Coulombs , int8_t celci
       Serial.print(F(" mAh\n"));
     }
 
+      //doc["Charge"] = dtostrf(charge,7,4,outstr); 
+      doc["Charge"] = charge;
 
-    current = LTC2944_code_to_current(current_code, resistor);                                           //! Convert current code to Amperes
-    voltage = LTC2944_code_to_voltage(voltage_code);                                                     //! Convert voltage code to Volts
 
-
+    current = LTC2944_code_to_current(current_code, resistor);
+    
+    doc["Current"] = current;                        
+                     //! Convert current code to Amperes
+    voltage = LTC2944_code_to_voltage(voltage_code);    
+    //char bufferV[10];
+    //dtostrf(voltage,5,3,bufferV); 
+    doc["Voltage"] = voltage;                                             //! Convert voltage code to Volts
+    doc["Time"] = String(now.timestamp(DateTime::TIMESTAMP_FULL)); 
+    Serial.print(now.timestamp(DateTime::TIMESTAMP_FULL));
+    
     Serial.print(F("Current "));
     Serial.print(current, 4);
     Serial.print(F(" A\n"));
@@ -907,7 +961,16 @@ void measurement_loop2(uint8_t datalog_en, int8_t mAh_or_Coulombs , int8_t celci
       Serial.print(temperature, 4);
       Serial.print(F(" C\n"));
     }
+
+    doc["Temperature"] = temperature;
+
     checkAlerts(status_code);                                                                          //! Check status code for Alerts. If an Alert has been set, print out appropriate message in the Serial Prompt
+
+    serializeJsonPretty(doc, Serial);
+    serializeJson(doc, Serial1);
+    serializeJson(doc, Serial2);
+
+    doc.clear();
 
     Serial.print(F("m-Main Menu\n\n"));
 
@@ -921,6 +984,7 @@ void measurement_loop2(uint8_t datalog_en, int8_t mAh_or_Coulombs , int8_t celci
     //delay(MEASUREMENT_LOOP_TIME);
 
   //}
+  //input = 'm';
 }
 }
 
@@ -971,6 +1035,7 @@ void measurement_loop(uint8_t datalog_en)
       print_cells(datalog_en);
       // BLE_cells will print Cell measurements to Serial1 which is where the Bluetooth is connected.
       BLE_cells(datalog_en); 
+      //print_cells_SD(datalog_en);
     }
   
     if (MEASURE_AUX == ENABLED)
@@ -1012,7 +1077,7 @@ void measurement_loop(uint8_t datalog_en)
 void print_menu(void)
 {
   Serial.println(F("\n*****************************************************************"));
-  Serial.print(F("* DC1812A and LTC6811Demonstration Program  by VS AE              *\n"));
+  Serial.print(F("* DC1812A and LTC6811 Demonstration Program  by VS AE           *\n"));
   Serial.print(F("*                                                               *\n"));
   Serial.print(F("* This program communicates with the LTC2944 Multicell Coulomb  *\n"));
   Serial.print(F("* Counter found on the DC1812A demo board.                      *\n"));
@@ -1020,6 +1085,7 @@ void print_menu(void)
   Serial.print(F("*                                                               *\n"));
   Serial.print(F("*****************************************************************\n"));
   Serial.println(F("List of 6811 Commands: "));
+  
   Serial.println(F("Write and Read Configuration: 1                            |Loop measurements with data-log output: 12     |Set Discharge: 23"));                         
   Serial.println(F("Read Configuration: 2                                      |Clear Registers: 13                            |Clear Discharge: 24"));
   Serial.println(F("Start Cell Voltage Conversion: 3                           |Read CV,AUX and ADSTAT Voltages: 14            |Write and Read of PWM: 25"));                 
@@ -1036,6 +1102,10 @@ void print_menu(void)
   Serial.print(F("42-Scan Mode\n"));
   Serial.print(F("43-Manual Mode\n"));
   Serial.print(F("44-Sleep Mode\n"));
+  Serial.print(F("45-Shutdown Mode\n"));
+  Serial.print(F("46-Settings\n"));
+
+  Serial.print(F("47-Start All Measurement Loop with WiFi and BLE\n"));
   Serial.print(F("45-Shutdown Mode\n"));
   Serial.print(F("46-Settings\n"));
   //Serial.print(F("Enter a command: "));
@@ -1110,6 +1180,7 @@ DateTime now = rtc.now(); //print timestamp
     if (datalog_en == 0)
     {
       Serial.println(String("DateTime:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+      
 
       Serial.print(" IC ");
       Serial.print(current_ic+1,DEC);
@@ -1136,39 +1207,122 @@ DateTime now = rtc.now(); //print timestamp
   Serial.println("\n");
 }
 
+
+void print_cells_SD(uint8_t datalog_en) {
+//unsigned long int time = millis();
+myFile = SD.open("test.txt", FILE_WRITE);
+DateTime now = rtc.now(); //print timestamp
+ // if the file opened okay, write to it:
+ delay(100);
+  if (myFile) {
+       Serial.println("Writing to file...");
+
+    for (int current_ic = 0 ; current_ic < TOTAL_IC; current_ic++)
+    {
+    if (datalog_en == 0)
+    {
+      myFile.println(String("DateTime:\t")+now.timestamp(DateTime::TIMESTAMP_FULL));
+
+      myFile.print(" IC ");
+      myFile.print(current_ic+1,DEC);
+      myFile.print(": ");      for (int i=0; i< BMS_IC[0].ic_reg.cell_channels; i++)
+      {
+        myFile.print(" C");
+        myFile.print(i+1,DEC);
+        myFile.print(":");        
+        myFile.print(BMS_IC[current_ic].cells.c_codes[i]*0.0001,4);
+        myFile.print(",");
+      }
+      myFile.println();
+    }
+    else
+    {
+      myFile.print(" Cells :");
+      for (int i=0; i<BMS_IC[0].ic_reg.cell_channels; i++)
+      {
+        myFile.print(BMS_IC[current_ic].cells.c_codes[i]*0.0001,4);
+        myFile.print(",");
+      }
+    }
+  }
+ 
+    myFile.close(); // close the file
+    Serial.println("Done.");
+  }
+
+    // if the file didn't open, print an error:
+  else {
+    Serial.println("error opening test.txt");
+  }
+
+  Serial.println("\n");
+}
+
+
+/**
+ *   myFile = SD.open("test.txt", FILE_WRITE);
+    // if the file opened okay, write to it:
+  if (myFile) {
+    Serial.println("Writing to file...");
+    // Write to file
+    myFile.println("BMS DATA");
+    myFile.println(data);
+    myFile.close(); // close the file
+    Serial.println("Done.");
+  }
+
+    // if the file didn't open, print an error:
+  else {
+    Serial.println("error opening test.txt");
+  }
+
+ * 
+*/
 /*!************************************************************
   \brief Prints cell voltage to the serial1 port for BLE
    @return void
  *************************************************************/
 void BLE_cells(uint8_t datalog_en)
+
 {
+  char buffer[10];
   for (int current_ic = 0 ; current_ic < TOTAL_IC; current_ic++)
   {
     if (datalog_en == 0)
     {
-      Serial1.print(" IC ");
-      Serial1.print(current_ic+1,DEC);
-      Serial1.print(": ");      for (int i=0; i< BMS_IC[0].ic_reg.cell_channels; i++)
+      //Serial1.print(" IC ");
+      //data1 += " IC ";
+      //Serial1.print(current_ic+1,DEC);
+      //data1 += current_ic+1, DEC;
+
+      //Serial1.print(": ");
+      //data1+= ": ";      
+      for (int i=0; i< BMS_IC[0].ic_reg.cell_channels; i++)
       {
-        Serial1.print(" C");
-        Serial1.print(i+1,DEC);
-        Serial1.print(":");        
-        Serial1.print(BMS_IC[current_ic].cells.c_codes[i]*0.0001,4);
-        Serial1.print(",");
+        //Serial1.print(" C");
+        //Serial1.print(i+1,DEC);
+
+        //Serial1.print(":");        
+        //Serial1.print(BMS_IC[current_ic].cells.c_codes[i]*0.0001,4);
+        //Serial1.print(",");
+        /*Saving cells to doc object.*/
+        doc["C" + String(i + 1)] = BMS_IC[current_ic].cells.c_codes[i]*0.0001;  
+
       }
-      Serial1.println();
+      //serializeJson(doc, Serial1);
+      //Serial1.println();
     }
     else
     {
-      Serial1.print(" Cells :");
+      //Serial1.print(" Cells :");
       for (int i=0; i<BMS_IC[0].ic_reg.cell_channels; i++)
       {
-        Serial1.print(BMS_IC[current_ic].cells.c_codes[i]*0.0001,4);
-        Serial1.print(",");
+        //Serial1.print(BMS_IC[current_ic].cells.c_codes[i]*0.0001,4);
+        //Serial1.print(",");
       }
     }
   }
-  Serial1.println("\n");
+  //Serial1.println("\n");
 }
 
 /*!****************************************************************************
@@ -2422,5 +2576,40 @@ void checkAlerts(uint8_t status_code)
     Serial.print(F("Alert: "));
     Serial.print(F("UVLO Alert\n"));
     Serial.print(F("***********************\n"));
+  }
+}
+
+void writeSD(String data){
+    // Create/Open file 
+  myFile = SD.open("test.txt", FILE_WRITE);
+    // if the file opened okay, write to it:
+  if (myFile) {
+    Serial.println("Writing to file...");
+    // Write to file
+    myFile.println("BMS DATA");
+    myFile.println(data);
+    myFile.close(); // close the file
+    Serial.println("Done.");
+  }
+
+    // if the file didn't open, print an error:
+  else {
+    Serial.println("error opening test.txt");
+  }
+
+}
+void ReadSD() {
+    // Reading the file
+  myFile = SD.open("test.txt");
+  if (myFile) {
+    Serial.println("Read:");
+    // Reading the whole file
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+   }
+    myFile.close();
+  }
+  else {
+    Serial.println("error opening test.txt");
   }
 }
